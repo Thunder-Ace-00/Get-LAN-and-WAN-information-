@@ -1,8 +1,7 @@
-import socket
-import netifaces
-import urllib.request
-import urllib.error
 import subprocess
+import re
+import urllib.request
+import socket
 
 '''
 ---------------------------------------------------------------------------------------
@@ -27,22 +26,25 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ---------------------------------------------------------------------------------------
 '''
 
-def get_lan_ip():
-    interfaces = netifaces.interfaces()
-    ips = {}
+def get_nic_info():
+    result = subprocess.run(["ip", "address"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
 
-    for interface in interfaces:
-        if interface.startswith(('eth', 'wlan', 'enp', 'wlp', 'enx', 'wlx')):
-            addresses = netifaces.ifaddresses(interface)
-            if netifaces.AF_INET in addresses:
-                ip_address = addresses[netifaces.AF_INET][0]['addr']
-                ips[interface] = ip_address
-
-    if not ips:
-        return "No LAN interface(s) found !"
-
-    return ', '.join(f'{k}: {v}' for k, v in ips.items())
-
+    info = {}
+    current_nic = None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if not line[0].isspace():  # New NIC section
+            current_nic = parts[1].strip(":")
+            info[current_nic] = {"ip4": None, "ip6": None, "mac": None}
+        if parts[0] == "inet":
+            info[current_nic]["ip4"] = parts[1].split("/")[0]
+        elif parts[0] == "inet6":
+            info[current_nic]["ip6"] = parts[1].split("/")[0]
+        elif parts[0] == "link/ether":
+            info[current_nic]["mac"] = parts[1]
+    return info
 
 def get_wan_info() -> tuple[str, str, str]:
     try:
@@ -59,12 +61,11 @@ def get_wan_info() -> tuple[str, str, str]:
     except subprocess.CalledProcessError:
         return "", "", ""
 
-
-def get_system_info() -> tuple[str, str, str, str, str, bool]:
+def get_system_info():
     Is_Connected_Internet: bool = False
-    Get_Wan_IP_Address: str     = "No WAN interface(s) found !"
-    Get_Organization: str       = "Not found !"
-    Get_Country: str            = "Not found !"
+    Get_Wan_IP_Address: str     = "None"
+    Get_Organization: str       = "None"
+    Get_Country: str            = "None"
 
     try:
         urllib.request.urlopen('https://www.google.com', timeout=1)
@@ -73,20 +74,36 @@ def get_system_info() -> tuple[str, str, str, str, str, bool]:
         pass
 
     Get_System_Name    = socket.gethostname()
-    Get_Lan_IP_Address = get_lan_ip()
+    Get_Lan_IP_Address = get_nic_info()
 
     if Is_Connected_Internet:
         Get_Wan_IP_Address, Get_Organization, Get_Country = get_wan_info()
 
     return Get_System_Name, Get_Lan_IP_Address, Get_Wan_IP_Address, Get_Organization, Get_Country, Is_Connected_Internet
 
-
 Pin_System_Name, Pin_Lan_IP, Pin_Wan_IP, Pin_Organization, Pin_Country, Pin_Connected = get_system_info()
 
 # Use the values as needed
-print("Connected to Internet :", Pin_Connected)
-print("System Name           :", Pin_System_Name)
-print("LAN IP Address        :", Pin_Lan_IP)
-print("WAN IP Address        :", Pin_Wan_IP)
-print("Organization          :", Pin_Organization)
-print("Country               :", Pin_Country)
+print(" -----------------------------------------------")
+print(" Connected to Internet :", Pin_Connected)
+print(" System Name           :", Pin_System_Name)
+
+if isinstance(Pin_Lan_IP, dict):
+    for nic, info in Pin_Lan_IP.items():
+        print(" -----------------------------------------------")
+        print(f" Info for {nic} :")
+        print(" -----------------------------------------------")
+        print(f" IPv4 Address          : {info['ip4']}")
+        print(f" IPv6 Address          : {info['ip6']}")
+        print(f" MAC Address           : {info['mac']}")
+else:
+    print(" -----------------------------------------------")
+    print("LAN IP Address        :", Pin_Lan_IP)
+
+print(" -----------------------------------------------")
+print(" Info for WAN connection :")
+print(" -----------------------------------------------")
+print(" IP Address            :", Pin_Wan_IP)
+print(" Organization          :", Pin_Organization)
+print(" Country               :", Pin_Country)
+print(" -----------------------------------------------")
