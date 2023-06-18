@@ -1,5 +1,4 @@
 import subprocess
-import re
 import urllib.request
 import socket
 
